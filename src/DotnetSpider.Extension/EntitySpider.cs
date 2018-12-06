@@ -1,74 +1,75 @@
-﻿using DotnetSpider.Core;
-using DotnetSpider.Core.Pipeline;
+﻿using DotnetSpider.Core.Pipeline;
 using DotnetSpider.Extension.Model;
 using DotnetSpider.Extension.Pipeline;
 using DotnetSpider.Extension.Processor;
-using System.Linq;
+using DotnetSpider.Extraction.Model;
+using System.Collections.Generic;
 
 namespace DotnetSpider.Extension
 {
-    public abstract class EntitySpider : CommonSpider
-    {
-        public EntitySpider() : this(new Site())
-        {
-        }
+	/// <summary>
+	/// 实体类爬虫的定义
+	/// </summary>
+	public abstract class EntitySpider : DistributedSpider
+	{
+		private readonly Dictionary<string, ModelProcessor> _processors = new Dictionary<string, ModelProcessor>();
 
-        public EntitySpider(Site site) : base(site)
-        {
-        }
+		/// <summary>
+		/// 构造方法
+		/// </summary>
+		public EntitySpider() : this(null)
+		{
+		}
 
-        public EntitySpider(string name) : base(name)
-        {
-        }
+		/// <summary>
+		/// 构造方法
+		/// </summary>
+		/// <param name="name">名称</param>
+		public EntitySpider(string name)
+		{
+			if (!string.IsNullOrWhiteSpace(name))
+			{
+				Name = name;
+			}
+		}
 
-        public EntitySpider(string name, Site site) : base(name, site)
-        {
-        }
+		/// <summary>
+		/// 添加爬虫实体类
+		/// </summary>
+		public EntityProcessor<T> AddEntityType<T>() where T : IBaseEntity
+		{
+			return AddEntityType<T>(null);
+		}
 
-        public void AddEntityType<T>(string tableName = null) where T : ISpiderEntity
-        {
-            AddEntityType<T>(null, tableName);
-        }
+		/// <summary>
+		/// 添加爬虫实体类
+		/// </summary>
+		/// <typeparam name="T">爬虫实体类的类型, 必须继承自 ISpiderEntity</typeparam>
+		/// <param name="dataHandler">对解析的结果进一步加工操作</param>
+		public EntityProcessor<T> AddEntityType<T>(IDataHandler dataHandler) where T : IBaseEntity
+		{
+			CheckIfRunning();
+			var typeName = typeof(T).FullName;
+			if (_processors.ContainsKey(typeName)) return _processors[typeName] as EntityProcessor<T>;
+			var processor = new EntityProcessor<T>(new ModelExtractor<T>(), dataHandler);
+			_processors.Add(typeName, processor);
+			AddPageProcessors(processor);
+			return _processors[typeName] as EntityProcessor<T>;
+		}
 
-        public void AddEntityType<T>(DataHandler<T> dataHandler) where T : ISpiderEntity
-        {
-            AddEntityType(dataHandler, null);
-        }
+		public ModelProcessor GetProcessor<T>()
+		{
+			var typeName = typeof(T).FullName;
+			return _processors.ContainsKey(typeName) ? _processors[typeName] : null;
+		}
 
-        public void AddEntityType<T>(DataHandler<T> dataHandler, string tableName) where T : ISpiderEntity
-        {
-            CheckIfRunning();
-
-            EntityProcessor<T> processor = new EntityProcessor<T>(Site, dataHandler, tableName);
-            AddPageProcessor(processor);
-        }
-
-        protected override IPipeline GetDefaultPipeline()
-        {
-            return BaseEntityPipeline.GetPipelineFromAppConfig();
-        }
-
-        protected override void PreInitComponent(params string[] arguments)
-        {
-            base.PreInitComponent(arguments);
-
-            if (arguments.Contains("skip"))
-            {
-                return;
-            }
-
-            foreach (var processor in PageProcessors)
-            {
-                if (processor is IEntityProcessor entityProcessor)
-                {
-                    foreach (var pipeline in Pipelines)
-                    {
-                        BaseEntityPipeline newPipeline = pipeline as BaseEntityPipeline;
-
-                        newPipeline?.AddEntity(entityProcessor.EntityDefine);
-                    }
-                }
-            }
-        }
-    }
+		/// <summary>
+		/// Get the default pipeline when user forget set a Pipeline to spider.
+		/// </summary>
+		/// <returns>数据管道</returns>
+		protected override IPipeline GetDefaultPipeline()
+		{
+			return DbEntityPipeline.GetPipelineFromAppConfig();
+		}
+	}
 }
